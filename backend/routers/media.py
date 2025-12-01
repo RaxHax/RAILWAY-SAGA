@@ -1,11 +1,11 @@
-"""Media management endpoints - list, get, update, delete."""
+"""Media management endpoints - READ-ONLY (list and get only)."""
 
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 
 from backend.dependencies import get_search_engine
-from backend.models.schemas import MediaItemResponse, UpdateDescriptionRequest
+from backend.models.schemas import MediaItemResponse
 
 router = APIRouter(tags=["Media"])
 
@@ -53,38 +53,4 @@ async def get_media(
     return MediaItemResponse(**item.__dict__)
 
 
-@router.put("/api/v1/media/{media_id}/description")
-async def update_description(
-    media_id: str,
-    request: UpdateDescriptionRequest,
-    engine=Depends(get_search_engine)
-):
-    """
-    Update the description of a media item.
-
-    This will regenerate the text embedding and combined embedding.
-    """
-    success = engine.update_description(media_id, request.description)
-
-    if not success:
-        raise HTTPException(status_code=404, detail="Media item not found or update failed")
-
-    return {"success": True, "message": "Description updated successfully"}
-
-
-@router.delete("/api/v1/media/{media_id}")
-async def delete_media(
-    media_id: str,
-    engine=Depends(get_search_engine)
-):
-    """
-    Delete a media item.
-
-    This will remove the file from storage and the database record.
-    """
-    success = engine.delete_media_item(media_id)
-
-    if not success:
-        raise HTTPException(status_code=404, detail="Media item not found or deletion failed")
-
-    return {"success": True, "message": "Media item deleted successfully"}
+# PUT and DELETE operations removed - READ-ONLY API
