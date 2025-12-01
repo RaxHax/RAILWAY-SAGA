@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -53,8 +53,13 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
                 elif "/search" in path:
                     response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=60"
 
-            # Add ETag support for better caching
-            response.headers["ETag"] = f'W/"{hash(str(response.body))}"'
+            # Add ETag support for better caching (only for non-streaming responses)
+            if isinstance(response, Response) and hasattr(response, 'body') and not isinstance(response, StreamingResponse):
+                try:
+                    response.headers["ETag"] = f'W/"{hash(str(response.body))}"'
+                except (AttributeError, TypeError):
+                    # Skip ETag generation if body is not accessible
+                    pass
 
         return response
 
