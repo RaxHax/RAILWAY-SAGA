@@ -3,6 +3,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Depends
+from starlette.concurrency import run_in_threadpool
 
 from backend.dependencies import get_search_engine
 from backend.models.schemas import MediaItemResponse
@@ -20,13 +21,17 @@ async def list_media(
     """
     List all media items with pagination.
     """
-    items = engine.list_all_media(
-        limit=limit,
-        offset=offset,
-        file_type=file_type
+    items = await run_in_threadpool(
+        engine.list_all_media,
+        limit,
+        offset,
+        file_type,
     )
 
-    total = engine.database_service.count_media_items(file_type=file_type)
+    total = await run_in_threadpool(
+        engine.database_service.count_media_items,
+        file_type,
+    )
 
     return {
         "items": [MediaItemResponse(**item.__dict__) for item in items],
@@ -45,7 +50,7 @@ async def get_media(
     """
     Get a single media item by ID.
     """
-    item = engine.get_media_item(media_id)
+    item = await run_in_threadpool(engine.get_media_item, media_id)
 
     if not item:
         raise HTTPException(status_code=404, detail="Media item not found")

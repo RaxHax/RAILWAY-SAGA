@@ -2,6 +2,7 @@
 
 import os
 from fastapi import APIRouter, Depends
+from starlette.concurrency import run_in_threadpool
 
 from backend.dependencies import get_optional_search_engine
 from backend.models.schemas import StatsResponse, ModelsResponse, AvailableModel
@@ -26,7 +27,7 @@ async def get_stats(engine=Depends(get_optional_search_engine)):
             embedding_dim=512
         )
 
-    stats = engine.get_stats()
+    stats = await run_in_threadpool(engine.get_stats)
     return StatsResponse(**stats)
 
 
