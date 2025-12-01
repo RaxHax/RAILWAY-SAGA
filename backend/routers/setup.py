@@ -4,9 +4,9 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
+from backend import dependencies
 from backend.dependencies import (
     config_manager,
-    search_engine,
     refresh_search_engine,
     _test_supabase_connection
 )
@@ -25,7 +25,7 @@ async def get_setup_status():
     """
     Return onboarding status so the desktop wizard knows what to show.
     """
-    status = config_manager.get_status(engine_ready=search_engine is not None)
+    status = config_manager.get_status(engine_ready=dependencies.search_engine is not None)
     return status
 
 
@@ -39,7 +39,7 @@ async def test_supabase_connection(request: SupabaseCredentialsRequest):
         return SetupActionResponse(
             success=True,
             message="Connection successful! Schema and credentials look good.",
-            engine_ready=search_engine is not None,
+            engine_ready=dependencies.search_engine is not None,
         )
     except Exception as exc:
         logger.error("Supabase connection test failed: %s", exc)

@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.core.logging_config import setup_logging, LOG_FILE_PATH
-from backend.dependencies import initialize_search_engine, search_engine
+from backend import dependencies
 from backend.routers import health, search, media, configuration
 
 # Setup logging
@@ -69,8 +69,8 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler - initialize and cleanup resources."""
     # Startup
     logger.info("Initializing Media Search Engine...")
-    initialize_search_engine()
-    if search_engine is None:
+    dependencies.initialize_search_engine()
+    if dependencies.search_engine is None:
         logger.warning("Supabase credentials not configured. Onboarding wizard is available.")
 
     yield
