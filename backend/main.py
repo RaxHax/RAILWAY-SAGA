@@ -78,6 +78,28 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down Media Search Engine...")
 
+    # Cleanup resources
+    if search_engine is not None:
+        try:
+            # Clear embedding model from memory
+            if hasattr(search_engine, 'embedding_service') and hasattr(search_engine.embedding_service, '_model'):
+                if search_engine.embedding_service._model is not None:
+                    logger.info("Clearing embedding model from memory...")
+                    # Clear CUDA cache if using GPU
+                    import torch
+                    if hasattr(torch.cuda, 'empty_cache'):
+                        torch.cuda.empty_cache()
+                    search_engine.embedding_service._model = None
+
+            # Close database connections
+            if hasattr(search_engine, 'database_service') and hasattr(search_engine.database_service, 'client'):
+                logger.info("Closing database connections...")
+                # Supabase client cleanup happens automatically, but we log it
+
+            logger.info("Resource cleanup completed")
+        except Exception as e:
+            logger.error("Error during resource cleanup: %s", e)
+
 
 # Create FastAPI app
 app = FastAPI(
