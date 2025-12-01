@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Query, Depends
+from starlette.concurrency import run_in_threadpool
 
 from backend.dependencies import get_search_engine
 from backend.models.schemas import SearchResponse, TextSearchRequest, MediaItemResponse
@@ -33,14 +34,15 @@ async def search_by_text(
     **Webflow Integration:**
     Call this from your Webflow site with a simple fetch request.
     """
-    result = engine.search_by_text(
-        query=request.query,
-        limit=request.limit,
-        min_similarity=request.min_similarity,
-        file_type=request.file_type,
-        use_hybrid=request.use_hybrid,
-        search_filenames=request.search_filenames,
-        description_weight=request.description_weight
+    result = await run_in_threadpool(
+        engine.search_by_text,
+        request.query,
+        request.limit,
+        request.min_similarity,
+        request.file_type,
+        request.use_hybrid,
+        request.search_filenames,
+        request.description_weight,
     )
 
     return SearchResponse(
@@ -71,12 +73,15 @@ async def search_by_text_get(
 
     Convenient for simple integrations and browser testing.
     """
-    result = engine.search_by_text(
-        query=q,
-        limit=limit,
-        file_type=file_type,
-        search_filenames=search_filenames,
-        description_weight=description_weight
+    result = await run_in_threadpool(
+        engine.search_by_text,
+        q,
+        limit,
+        0.0,
+        file_type,
+        True,
+        search_filenames,
+        description_weight,
     )
 
     return SearchResponse(
@@ -103,10 +108,12 @@ async def search_by_image(
     try:
         content = await file.read()
 
-        result = engine.search_by_image(
-            image=content,
-            limit=limit,
-            file_type=file_type
+        result = await run_in_threadpool(
+            engine.search_by_image,
+            content,
+            limit,
+            0.0,
+            file_type,
         )
 
         return SearchResponse(
@@ -148,13 +155,15 @@ async def search_combined(
                 detail="At least one of text_query or image file must be provided"
             )
 
-        result = engine.search_combined(
-            text_query=text_query,
-            image=image_data,
-            text_weight=text_weight,
-            image_weight=image_weight,
-            limit=limit,
-            file_type=file_type
+        result = await run_in_threadpool(
+            engine.search_combined,
+            text_query,
+            image_data,
+            text_weight,
+            image_weight,
+            limit,
+            0.0,
+            file_type,
         )
 
         return SearchResponse(
