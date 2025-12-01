@@ -814,10 +814,13 @@ def create_supabase_service(
     Returns:
         Configured SupabaseService instance
     """
-    import os
-    
-    url = url or os.environ.get("SUPABASE_URL")
-    key = key or os.environ.get("SUPABASE_KEY")
+    # Allow common misspellings while nudging users toward the preferred names
+    from backend.core.env import get_supabase_env
+
+    env_url, env_key = get_supabase_env()
+
+    url = url or env_url
+    key = key or env_key
     
     if not url or not key:
         raise ValueError(

@@ -1,8 +1,8 @@
 """Health check endpoints."""
 
-import os
 from fastapi import APIRouter
 
+from backend.core.env import get_supabase_env
 from backend.dependencies import search_engine
 
 router = APIRouter(tags=["Health"])
@@ -11,7 +11,8 @@ router = APIRouter(tags=["Health"])
 @router.get("/")
 async def root():
     """Health check endpoint."""
-    supabase_configured = bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY"))
+    env_url, env_key = get_supabase_env()
+    supabase_configured = bool(env_url and env_key)
     return {
         "status": "healthy",
         "service": "Media Semantic Search API (READ-ONLY)",
@@ -26,13 +27,15 @@ async def root():
 @router.get("/api/v1/health")
 async def health_check():
     """Detailed health check."""
+    env_url, env_key = get_supabase_env()
+    supabase_configured = bool(env_url and env_key)
     return {
         "status": "healthy",
         "mode": "read-only",
         "engine_initialized": search_engine is not None,
         "database_connected": search_engine is not None,
         "demo_mode": search_engine is None,
-        "supabase_configured": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY")),
+        "supabase_configured": supabase_configured,
         "optimizations": {
             "gzip_compression": True,
             "cache_headers": True,
