@@ -123,16 +123,26 @@ class CLIPModel(BaseEmbeddingModel):
     
     def load_model(self) -> None:
         from transformers import CLIPModel as HFCLIPModel, CLIPProcessor
-        
+
         logger.info(f"Loading CLIP model: {self.model_name}")
-        model = HFCLIPModel.from_pretrained(self.model_name)
-        self.model = self._move_to_device(model)
-        self.processor = CLIPProcessor.from_pretrained(self.model_name)
-        self.model.eval()
-        
-        # Determine embedding dimension
-        self._embedding_dim = self.model.config.projection_dim
-        logger.info(f"CLIP model loaded. Embedding dim: {self._embedding_dim}")
+        try:
+            model = HFCLIPModel.from_pretrained(self.model_name)
+            self.model = self._move_to_device(model)
+
+            # Load processor with explicit use_fast parameter to avoid version issues
+            logger.debug(f"Loading CLIP processor for {self.model_name}")
+            self.processor = CLIPProcessor.from_pretrained(
+                self.model_name,
+                use_fast=False  # Explicitly use slow processor for compatibility
+            )
+            self.model.eval()
+
+            # Determine embedding dimension
+            self._embedding_dim = self.model.config.projection_dim
+            logger.info(f"CLIP model loaded successfully. Embedding dim: {self._embedding_dim}")
+        except Exception as e:
+            logger.error(f"Failed to load CLIP model {self.model_name}: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to load CLIP model: {e}") from e
     
     def encode_image(self, image: Image.Image) -> np.ndarray:
         with torch.no_grad():
@@ -320,10 +330,12 @@ class EmbeddingService:
         self.model_type = model_type
         self.model_name = model_name
         self._model: Optional[BaseEmbeddingModel] = None
+        logger.debug(f"EmbeddingService initialized with model_type={model_type}, model_name={model_name}")
         
     @property
     def model(self) -> BaseEmbeddingModel:
         if self._model is None:
+            logger.debug(f"Lazy loading model: {self.model_name}")
             self.load_model()
         return self._model
     
@@ -335,11 +347,16 @@ class EmbeddingService:
         """Load the configured embedding model."""
         if self.model_type not in self.MODEL_CLASSES:
             raise ValueError(f"Unknown model type: {self.model_type}")
-        
-        model_class = self.MODEL_CLASSES[self.model_type]
-        self._model = model_class(self.model_name)
-        self._model.load_model()
-        logger.info(f"Embedding service ready with {self.model_type} model")
+
+        try:
+            logger.info(f"Loading embedding model: type={self.model_type}, name={self.model_name}")
+            model_class = self.MODEL_CLASSES[self.model_type]
+            self._model = model_class(self.model_name)
+            self._model.load_model()
+            logger.info(f"Embedding service ready with {self.model_type} model (dim={self._model.embedding_dim})")
+        except Exception as e:
+            logger.error(f"Failed to load embedding model {self.model_type}/{self.model_name}: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to initialize embedding model: {e}") from e
     
     def encode_image(self, image: Union[Image.Image, bytes, str, Path]) -> np.ndarray:
         """
