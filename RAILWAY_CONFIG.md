@@ -49,8 +49,8 @@ See `backend/main.py:78-101` for implementation.
 
 ```bash
 # Supabase Configuration
-SUPABASE_URL=your-project-url.supabase.co
-SUPABASE_KEY=your-anon-or-service-role-key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-service-role-key-here  # Use service_role key, NOT anon key!
 
 # Optional: Model Configuration
 MODEL_KEY=clip-vit-base-patch32  # Default model
@@ -58,6 +58,27 @@ MODEL_KEY=clip-vit-base-patch32  # Default model
 # Optional: Port Configuration
 PORT=8080  # Railway sets this automatically
 ```
+
+### Which Supabase Key to Use?
+
+**Use the `service_role` key** (also called the secret key):
+
+- ✅ **service_role key**: For backend servers (this is what you need!)
+  - Full database access
+  - Bypasses Row Level Security (RLS)
+  - Required for storage operations
+  - Safe in server environment (Railway)
+
+- ❌ **anon key**: For client-side apps only
+  - Limited by RLS policies
+  - Designed for browsers/mobile apps
+  - Will cause permission errors in your backend
+
+**Where to find it:**
+1. Supabase Dashboard → Settings → API
+2. Look for "service_role" under Project API keys
+3. Copy the secret key (starts with `eyJ...`)
+4. Add to Railway environment variables
 
 ### Deployment Settings
 
