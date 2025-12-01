@@ -10,6 +10,7 @@ from pydantic import HttpUrl
 
 from config.settings import ModelConfig
 from config.user_config import ConfigManager, DEFAULT_MODEL_KEY
+from backend.core.env import get_supabase_env
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,7 @@ DEMO_MODE = False
 
 def _active_credentials() -> Optional[Dict[str, Any]]:
     """Return the currently configured Supabase credentials, preferring env vars."""
-    env_url = os.environ.get("SUPABASE_URL")
-    env_key = os.environ.get("SUPABASE_KEY")
+    env_url, env_key = get_supabase_env()
     env_model = os.environ.get("MODEL_KEY")
 
     if env_url and env_key:
