@@ -1,0 +1,30 @@
+# Optimized requirements for Railway deployment
+# Uses CPU-only PyTorch to reduce build size and time
+
+# Core dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Supabase
+supabase>=2.0.0
+
+# AI/ML models - CPU-only PyTorch (much smaller, ~200MB vs ~2GB)
+# Railway doesn't have GPU, so CPU-only is perfect
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.6.0
+transformers>=4.35.0
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# For video processing
+opencv-python-headless>=4.8.0
+
+# Development
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# Note: pywebview removed - not needed for API server deployment
+
