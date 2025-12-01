@@ -7,14 +7,16 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.core.logging_config import setup_logging, LOG_FILE_PATH
 from backend.dependencies import initialize_search_engine, search_engine
-from backend.routers import health, ingestion, search, media, configuration, setup, admin
+from backend.routers import health, search, media, configuration
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -22,6 +24,39 @@ logger.info("File logging active: %s", LOG_FILE_PATH)
 
 # Paths
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+
+# Cache control middleware for read-only API optimization
+class CacheControlMiddleware(BaseHTTPMiddleware):
+    """Add cache headers to responses for better performance."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+
+        # Add cache headers for GET requests
+        if request.method == "GET":
+            path = request.url.path
+
+            # Cache static assets aggressively (1 year)
+            if path.startswith("/assets/") or path.endswith((".js", ".css", ".png", ".jpg", ".ico")):
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+
+            # Cache API responses for 5 minutes
+            elif path.startswith("/api/v1/"):
+                # Stats and configuration can be cached longer
+                if "stats" in path or "models" in path or "schema" in path:
+                    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=600"
+                # Media listings can be cached
+                elif "/media" in path and "search" not in path:
+                    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=120"
+                # Search results cached briefly
+                elif "/search" in path:
+                    response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=60"
+
+            # Add ETag support for better caching
+            response.headers["ETag"] = f'W/"{hash(str(response.body))}"'
+
+        return response
 
 
 @asynccontextmanager
@@ -43,37 +78,42 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Media Semantic Search API",
     description="""
-    A powerful semantic search engine for images and videos.
+    A high-performance read-only semantic search API for images and videos.
 
     Features:
-    - Upload and index media files with AI-generated embeddings
-    - Search using natural language descriptions
+    - Lightning-fast semantic search using natural language
     - Find similar media using image queries
+    - Optimized for maximum read performance with caching
     - Support for multiple AI models including multilingual options
 
-    Designed for easy integration with Webflow and other web platforms.
+    READ-ONLY API: Upload operations are disabled for security and performance.
     """,
     version="1.0.0",
     lifespan=lifespan
 )
 
-# Configure CORS for Webflow integration
+# Performance optimizations for LASER-FAST read operations
+# 1. Cache control headers for aggressive caching
+app.add_middleware(CacheControlMiddleware)
+
+# 2. GZip compression for faster response times
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# 3. Configure CORS for Webflow integration (optimized for read-only)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Configure specific domains in production
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],  # Read-only: no PUT/DELETE/PATCH
     allow_headers=["*"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
-# Include routers
+# Include routers (READ-ONLY: ingestion, setup, and admin removed)
 app.include_router(health.router)
-app.include_router(ingestion.router)
 app.include_router(search.router)
 app.include_router(media.router)
 app.include_router(configuration.router)
-app.include_router(setup.router)
-app.include_router(admin.router)
 
 # Serve frontend if available
 if FRONTEND_DIST.exists():
