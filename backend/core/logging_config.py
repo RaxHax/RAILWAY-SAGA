@@ -1,6 +1,7 @@
 """Application logging configuration."""
 
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from pathlib import Path
 def setup_logging() -> Path:
     """
     Configure application logging with both console + file handlers.
-    Generates a unique log file per run under <repo>/logs.
+    Generates a unique log file per run under <repo>/logs or /tmp for Railway.
     """
     root_logger = logging.getLogger()
 
@@ -16,7 +17,12 @@ def setup_logging() -> Path:
     if getattr(setup_logging, "_configured", False):
         return getattr(setup_logging, "_log_file_path")
 
-    log_dir = Path(__file__).resolve().parent.parent.parent / "logs"
+    # Use /tmp/logs on Railway (or other cloud platforms), local logs/ directory otherwise
+    if os.environ.get("RAILWAY_ENVIRONMENT"):
+        log_dir = Path("/tmp/logs")
+    else:
+        log_dir = Path(__file__).resolve().parent.parent.parent / "logs"
+
     log_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
