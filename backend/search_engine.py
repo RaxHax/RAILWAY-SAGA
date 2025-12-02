@@ -8,9 +8,12 @@ import logging
 import mimetypes
 import tempfile
 import uuid
+import time
+import threading
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Union, Tuple
 from dataclasses import dataclass, field
+from collections import OrderedDict
 
 import numpy as np
 from PIL import Image
@@ -73,12 +76,21 @@ class MediaSearchEngine:
         embedding_service: EmbeddingService,
         database_service: SupabaseService,
         generate_thumbnails: bool = True,
-        thumbnail_size: Tuple[int, int] = (256, 256)
+        thumbnail_size: Tuple[int, int] = (256, 256),
+        cache_ttl_seconds: int = 120,
+        cache_max_entries: int = 256
     ):
         self.embedding_service = embedding_service
         self.database_service = database_service
         self.generate_thumbnails = generate_thumbnails
         self.thumbnail_size = thumbnail_size
+        self.cache_ttl_seconds = cache_ttl_seconds
+        self.cache_max_entries = cache_max_entries
+
+        # Lightweight in-memory caches to avoid recomputing hot queries
+        self._text_embedding_cache: OrderedDict[str, Tuple[float, np.ndarray]] = OrderedDict()
+        self._text_search_cache: OrderedDict[Tuple[Any, ...], Tuple[float, "SearchResult"]] = OrderedDict()
+        self._cache_lock = threading.RLock()
         
         logger.info("MediaSearchEngine initialized")
     
@@ -118,6 +130,49 @@ class MediaSearchEngine:
         )
         
         return cls(embedding_service, database_service)
+    
+    def _prune_cache(self, cache: OrderedDict) -> None:
+        """Trim caches to the configured maximum size."""
+        while len(cache) > self.cache_max_entries:
+            cache.popitem(last=False)
+
+    def _get_cached_text_embedding(self, query: str, now: float) -> Optional[np.ndarray]:
+        """Fetch a cached text embedding if it's still fresh."""
+        with self._cache_lock:
+            entry = self._text_embedding_cache.get(query)
+            if not entry:
+                return None
+            ts, embedding = entry
+            if now - ts > self.cache_ttl_seconds:
+                self._text_embedding_cache.pop(query, None)
+                return None
+            self._text_embedding_cache.move_to_end(query)
+            return embedding
+
+    def _store_text_embedding(self, query: str, embedding: np.ndarray, now: float) -> None:
+        """Store a text embedding in the cache."""
+        with self._cache_lock:
+            self._text_embedding_cache[query] = (now, embedding)
+            self._prune_cache(self._text_embedding_cache)
+
+    def _get_cached_search_result(self, cache_key: Tuple[Any, ...], now: float) -> Optional["SearchResult"]:
+        """Fetch a cached search result if it's still within TTL."""
+        with self._cache_lock:
+            entry = self._text_search_cache.get(cache_key)
+            if not entry:
+                return None
+            ts, result = entry
+            if now - ts > self.cache_ttl_seconds:
+                self._text_search_cache.pop(cache_key, None)
+                return None
+            self._text_search_cache.move_to_end(cache_key)
+            return result
+
+    def _store_search_result(self, cache_key: Tuple[Any, ...], result: "SearchResult", now: float) -> None:
+        """Store a search result in the cache."""
+        with self._cache_lock:
+            self._text_search_cache[cache_key] = (now, result)
+            self._prune_cache(self._text_search_cache)
     
     def _get_file_type(self, filename: str) -> Optional[str]:
         """Determine if file is image or video based on extension."""
@@ -446,11 +501,19 @@ class MediaSearchEngine:
         Returns:
             SearchResult with matching media items
         """
-        import time
         start_time = time.time()
+        now = time.monotonic()
+
+        cache_key = (query, limit, min_similarity, file_type, use_hybrid, search_filenames, description_weight)
+        cached = self._get_cached_search_result(cache_key, now)
+        if cached:
+            return cached
         
         # Generate query embedding
-        query_embedding = self.embedding_service.encode_text(query)
+        query_embedding = self._get_cached_text_embedding(query, now)
+        if query_embedding is None:
+            query_embedding = self.embedding_service.encode_text(query)
+            self._store_text_embedding(query, query_embedding, now)
         
         # Search
         if use_hybrid:
@@ -489,13 +552,16 @@ class MediaSearchEngine:
         
         processing_time = (time.time() - start_time) * 1000
         
-        return SearchResult(
+        result = SearchResult(
             items=items,
             query=query,
             query_type="text",
             total_results=len(items),
             processing_time_ms=processing_time
         )
+
+        self._store_search_result(cache_key, result, now)
+        return result
     
     def search_by_image(
         self,
