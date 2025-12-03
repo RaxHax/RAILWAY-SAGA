@@ -6,8 +6,6 @@ Combines embedding generation with vector storage for semantic search.
 import io
 import logging
 import mimetypes
-import tempfile
-import uuid
 import time
 import threading
 from pathlib import Path
@@ -62,14 +60,13 @@ class IngestionResult:
 class MediaSearchEngine:
     """
     Main search engine class that handles:
-    - Media file ingestion (images and videos)
+    - Media file ingestion (images)
     - Embedding generation
     - Vector storage
     - Semantic search
     """
     
     SUPPORTED_IMAGE_TYPES = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
-    SUPPORTED_VIDEO_TYPES = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}
     
     def __init__(
         self,
@@ -174,14 +171,10 @@ class MediaSearchEngine:
             self._text_search_cache[cache_key] = (now, result)
             self._prune_cache(self._text_search_cache)
     
-    def _get_file_type(self, filename: str) -> Optional[str]:
-        """Determine if file is image or video based on extension."""
+    def _is_supported_image(self, filename: str) -> bool:
+        """Check whether the file extension is an accepted image type."""
         ext = Path(filename).suffix.lower()
-        if ext in self.SUPPORTED_IMAGE_TYPES:
-            return "image"
-        elif ext in self.SUPPORTED_VIDEO_TYPES:
-            return "video"
-        return None
+        return ext in self.SUPPORTED_IMAGE_TYPES
     
     def _get_mime_type(self, filename: str) -> str:
         """Get MIME type for a file."""
@@ -206,24 +199,6 @@ class MediaSearchEngine:
         img_copy.save(buffer, format='JPEG', quality=85)
         buffer.seek(0)
         return buffer.getvalue()
-    
-    def _create_video_thumbnail(self, video_path: str) -> Optional[bytes]:
-        """Create a thumbnail from a video's first frame."""
-        try:
-            import cv2
-            
-            cap = cv2.VideoCapture(video_path)
-            ret, frame = cap.read()
-            cap.release()
-            
-            if ret:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                image = Image.fromarray(frame_rgb)
-                return self._create_thumbnail(image)
-        except Exception as e:
-            logger.warning(f"Could not create video thumbnail: {e}")
-        
-        return None
     
     async def ingest_image(
         self,
@@ -317,119 +292,6 @@ class MediaSearchEngine:
             logger.error(f"Error ingesting image: {e}")
             return IngestionResult(success=False, error=str(e))
     
-    async def ingest_video(
-        self,
-        video_data: bytes,
-        filename: str,
-        description: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        sample_rate: int = 30,
-        max_frames: int = 10
-    ) -> IngestionResult:
-        """
-        Ingest a video into the search engine.
-        
-        Args:
-            video_data: Video file as bytes
-            filename: Original filename
-            description: Optional text description
-            tags: Optional list of tags
-            metadata: Optional additional metadata
-            sample_rate: Sample every N frames
-            max_frames: Maximum frames to process
-            
-        Returns:
-            IngestionResult with status and media ID
-        """
-        try:
-            # Save to temp file for processing
-            with tempfile.NamedTemporaryFile(suffix=Path(filename).suffix, delete=False) as tmp:
-                tmp.write(video_data)
-                tmp_path = tmp.name
-            
-            try:
-                # Generate embeddings from video frames
-                avg_embedding, frame_embeddings = self.embedding_service.encode_video(
-                    tmp_path,
-                    sample_rate=sample_rate,
-                    max_frames=max_frames
-                )
-                
-                text_embedding = None
-                combined_embedding = avg_embedding.copy()
-                
-                if description:
-                    text_embedding = self.embedding_service.encode_text(description)
-                    # Combine video embedding with text
-                    combined_embedding = 0.7 * avg_embedding + 0.3 * text_embedding
-                    combined_embedding = combined_embedding / np.linalg.norm(combined_embedding)
-                
-                # Upload file to storage
-                storage_path = self.database_service.upload_file(
-                    file_data=video_data,
-                    filename=filename,
-                    content_type=self._get_mime_type(filename)
-                )
-                
-                # Create and upload thumbnail
-                thumbnail_path = None
-                if self.generate_thumbnails:
-                    thumbnail_data = self._create_video_thumbnail(tmp_path)
-                    if thumbnail_data:
-                        thumbnail_filename = f"thumb_{Path(filename).stem}.jpg"
-                        thumbnail_path = self.database_service.upload_file(
-                            file_data=thumbnail_data,
-                            filename=thumbnail_filename,
-                            content_type="image/jpeg"
-                        )
-                
-                # Get video metadata
-                import cv2
-                cap = cv2.VideoCapture(tmp_path)
-                fps = cap.get(cv2.CAP_PROP_FPS)
-                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                duration = frame_count / fps if fps > 0 else 0
-                cap.release()
-                
-                # Store in database
-                result = self.database_service.create_media_item(
-                    filename=storage_path.split("/")[-1],
-                    original_filename=filename,
-                    file_type="video",
-                    storage_path=storage_path,
-                    visual_embedding=avg_embedding,
-                    text_embedding=text_embedding,
-                    combined_embedding=combined_embedding,
-                    description=description,
-                    tags=tags,
-                    thumbnail_path=thumbnail_path,
-                    metadata={
-                        **(metadata or {}),
-                        "fps": fps,
-                        "processed_frames": len(frame_embeddings)
-                    },
-                    mime_type=self._get_mime_type(filename),
-                    file_size=len(video_data),
-                    duration_seconds=duration,
-                    frame_count=frame_count
-                )
-                
-                return IngestionResult(
-                    success=True,
-                    media_id=result["id"],
-                    storage_url=self.database_service.get_public_url(storage_path),
-                    thumbnail_url=self.database_service.get_public_url(thumbnail_path) if thumbnail_path else None
-                )
-                
-            finally:
-                # Clean up temp file
-                Path(tmp_path).unlink(missing_ok=True)
-            
-        except Exception as e:
-            logger.error(f"Error ingesting video: {e}")
-            return IngestionResult(success=False, error=str(e))
-    
     async def ingest_media(
         self,
         file_data: bytes,
@@ -451,21 +313,15 @@ class MediaSearchEngine:
         Returns:
             IngestionResult with status and media ID
         """
-        file_type = self._get_file_type(filename)
-        
-        if file_type == "image":
-            return await self.ingest_image(
-                file_data, filename, description, tags, metadata
-            )
-        elif file_type == "video":
-            return await self.ingest_video(
-                file_data, filename, description, tags, metadata
-            )
-        else:
+        if not self._is_supported_image(filename):
             return IngestionResult(
                 success=False,
-                error=f"Unsupported file type: {Path(filename).suffix}"
+                error=f"Unsupported file type: {Path(filename).suffix}. Only images are supported."
             )
+
+        return await self.ingest_image(
+            file_data, filename, description, tags, metadata
+        )
     
     def search_by_text(
         self,

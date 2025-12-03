@@ -6,7 +6,7 @@ Supports multiple AI models: CLIP, Multilingual CLIP, SigLIP, OpenCLIP.
 import io
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional, Union, Tuple
+from typing import List, Optional, Union
 from pathlib import Path
 
 import numpy as np
@@ -390,59 +390,6 @@ class EmbeddingService:
             Normalized embedding vector as numpy array
         """
         return self.model.encode_text(text)
-    
-    def encode_video(
-        self, 
-        video_path: Union[str, Path],
-        sample_rate: int = 30,
-        max_frames: int = 10
-    ) -> Tuple[np.ndarray, List[np.ndarray]]:
-        """
-        Generate embeddings from a video by sampling frames.
-        
-        Args:
-            video_path: Path to video file
-            sample_rate: Sample every N frames
-            max_frames: Maximum number of frames to process
-            
-        Returns:
-            Tuple of (average_embedding, list_of_frame_embeddings)
-        """
-        import cv2
-        
-        video_path = str(video_path)
-        cap = cv2.VideoCapture(video_path)
-        
-        if not cap.isOpened():
-            raise ValueError(f"Could not open video: {video_path}")
-        
-        frame_embeddings = []
-        frame_count = 0
-        
-        while len(frame_embeddings) < max_frames:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            if frame_count % sample_rate == 0:
-                # Convert BGR to RGB
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                image = Image.fromarray(frame_rgb)
-                embedding = self.encode_image(image)
-                frame_embeddings.append(embedding)
-            
-            frame_count += 1
-        
-        cap.release()
-        
-        if not frame_embeddings:
-            raise ValueError("No frames could be extracted from video")
-        
-        # Average embedding for the video
-        avg_embedding = np.mean(frame_embeddings, axis=0)
-        avg_embedding = avg_embedding / np.linalg.norm(avg_embedding)
-        
-        return avg_embedding, frame_embeddings
     
     def compute_similarity(self, embedding1: np.ndarray, embedding2: np.ndarray) -> float:
         """Compute cosine similarity between two embeddings."""

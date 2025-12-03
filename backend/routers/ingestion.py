@@ -16,16 +16,16 @@ router = APIRouter(tags=["Ingestion"])
 
 @router.post("/api/v1/media/upload", response_model=IngestionResponse)
 async def upload_media(
-    file: UploadFile = File(..., description="Media file to upload"),
+    file: UploadFile = File(..., description="Image file to upload"),
     description: Optional[str] = Form(None, description="Optional text description"),
     tags: Optional[str] = Form(None, description="Comma-separated tags"),
     engine=Depends(get_search_engine)
 ):
     """
-    Upload and index a media file (image or video).
+    Upload and index an image file.
 
     The file will be processed to generate AI embeddings and stored in the database.
-    Supports JPG, PNG, GIF, WebP, BMP images and MP4, AVI, MOV, MKV, WebM videos.
+    Supports JPG, PNG, GIF, WebP, BMP images.
 
     **Webflow Integration:**
     Use this endpoint with Webflow's form submissions or custom JavaScript.
@@ -60,11 +60,11 @@ async def upload_media(
 
 @router.post("/api/v1/media/upload/batch")
 async def upload_batch(
-    files: List[UploadFile] = File(..., description="Multiple media files"),
+    files: List[UploadFile] = File(..., description="Multiple image files"),
     engine=Depends(get_search_engine)
 ):
     """
-    Upload multiple media files at once.
+    Upload multiple image files at once.
 
     Returns a list of ingestion results for each file.
     """
@@ -103,7 +103,7 @@ async def upload_batch_pairs(
     engine=Depends(get_search_engine)
 ):
     """
-    Upload media files with paired text description files.
+    Upload image files with paired text description files.
 
     This endpoint processes files in pairs where:
     - An image file (e.g., 'photo.png', 'sunset.jpg') is paired with
@@ -113,7 +113,6 @@ async def upload_batch_pairs(
     Supported naming patterns:
     - photo.png + photo.txt
     - image.jpg + image.txt
-    - video.mp4 + video.txt
 
     Files without a matching pair will be uploaded without a description.
     """
@@ -197,7 +196,7 @@ async def upload_from_folder_path(
     engine=Depends(get_search_engine)
 ):
     """
-    Upload all media files from a server-side folder path.
+    Upload all image files from a server-side folder path.
 
     Processes image+text file pairs where:
     - An image file (e.g., 'photo.png') is paired with 'photo.txt'
@@ -215,7 +214,7 @@ async def upload_from_folder_path(
         raise HTTPException(status_code=400, detail=f"Path is not a directory: {request.folder_path}")
 
     results = []
-    supported_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.mp4', '.avi', '.mov', '.mkv', '.webm'}
+    supported_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
 
     # Find all media files
     media_files = [f for f in folder.iterdir() if f.suffix.lower() in supported_extensions]
