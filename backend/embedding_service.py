@@ -160,43 +160,50 @@ class CLIPModel(BaseEmbeddingModel):
 
 
 class MultilingualCLIPModel(BaseEmbeddingModel):
-    """Multilingual CLIP model supporting 100+ languages."""
-    
+    """Multilingual CLIP model supporting 100+ languages (M-CLIP)."""
+
     def load_model(self) -> None:
         from transformers import CLIPModel as HFCLIPModel, CLIPProcessor
-        from sentence_transformers import SentenceTransformer
-        
+
         logger.info(f"Loading Multilingual CLIP model: {self.model_name}")
-        base_clip = "openai/clip-vit-base-patch32"
-        
-        # For multilingual CLIP, we use sentence-transformers for text
-        # and standard CLIP processor for images
-        if "sentence-transformers" in self.model_name:
-            self.text_model = SentenceTransformer(self.model_name, device=self.device)
-        else:
-            try:
-                from multilingual_clip import pt_multilingual_clip
-                self.text_model, self.tokenizer = pt_multilingual_clip.load_model(self.model_name)
-            except ImportError:
-                logger.warning(
-                    "multilingual-clip package not available. Falling back to sentence-transformers "
-                    "implementation for multilingual embeddings."
-                )
-                fallback_model = "sentence-transformers/clip-ViT-B-32-multilingual-v1"
-                self.text_model = SentenceTransformer(fallback_model, device=self.device)
-                self.tokenizer = None
-            except Exception as exc:
-                logger.error("Failed to load multilingual CLIP model '%s': %s", self.model_name, exc)
-                raise
-        
-        # Use base CLIP for image encoding
-        base_model = HFCLIPModel.from_pretrained(base_clip)
-        self.model = self._move_to_device(base_model)
-        self.processor = CLIPProcessor.from_pretrained(base_clip)
-        
+
+        # Load M-CLIP text encoder (XLM-RoBERTa-Large)
+        try:
+            from multilingual_clip import pt_multilingual_clip
+            import transformers
+
+            logger.info(f"Loading M-CLIP text encoder: {self.model_name}")
+            self.text_model = pt_multilingual_clip.MultilingualCLIP.from_pretrained(self.model_name)
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(self.model_name)
+
+            # M-CLIP models use ViT-B-32 for image encoding
+            base_clip = "openai/clip-vit-base-patch32"
+            base_model = HFCLIPModel.from_pretrained(base_clip)
+            self.model = self._move_to_device(base_model)
+            self.processor = CLIPProcessor.from_pretrained(base_clip)
+
+        except ImportError:
+            logger.warning(
+                "multilingual-clip package not available. Falling back to sentence-transformers."
+            )
+            from sentence_transformers import SentenceTransformer
+            fallback_model = "sentence-transformers/clip-ViT-B-32-multilingual-v1"
+            self.text_model = SentenceTransformer(fallback_model, device=self.device)
+            self.tokenizer = None
+
+            # Use base CLIP for images
+            base_clip = "openai/clip-vit-base-patch32"
+            base_model = HFCLIPModel.from_pretrained(base_clip)
+            self.model = self._move_to_device(base_model)
+            self.processor = CLIPProcessor.from_pretrained(base_clip)
+
+        except Exception as exc:
+            logger.error("Failed to load M-CLIP model '%s': %s", self.model_name, exc)
+            raise
+
         self.model.eval()
         self._embedding_dim = 512
-        logger.info(f"Multilingual CLIP loaded. Embedding dim: {self._embedding_dim}")
+        logger.info(f"M-CLIP loaded successfully. Embedding dim: {self._embedding_dim}")
     
     def encode_image(self, image: Image.Image) -> np.ndarray:
         with torch.no_grad():
@@ -207,15 +214,14 @@ class MultilingualCLIPModel(BaseEmbeddingModel):
     
     def encode_text(self, text: str) -> np.ndarray:
         if hasattr(self, 'text_model') and hasattr(self.text_model, 'encode'):
-            # Sentence transformers style
+            # Sentence transformers fallback
             embedding = self.text_model.encode([text], convert_to_numpy=True)
             embedding = embedding / np.linalg.norm(embedding, axis=-1, keepdims=True)
             return embedding.flatten()
         else:
-            # M-CLIP style
-            import multilingual_clip.pt_multilingual_clip as mclip
+            # M-CLIP style (using forward method)
             with torch.no_grad():
-                embedding = mclip.forward(self.text_model, self.tokenizer, [text])
+                embedding = self.text_model.forward([text], self.tokenizer)
                 embedding = embedding / embedding.norm(dim=-1, keepdim=True)
                 return embedding.cpu().numpy().flatten()
 
@@ -318,7 +324,7 @@ class EmbeddingService:
     Main embedding service that manages model loading and provides
     a unified interface for generating embeddings.
     """
-    
+
     MODEL_CLASSES = {
         "clip": CLIPModel,
         "multilingual-clip": MultilingualCLIPModel,
