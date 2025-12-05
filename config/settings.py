@@ -7,7 +7,7 @@ from typing import Dict
 class ModelConfig:
     """Registry of supported embedding models."""
 
-    DEFAULT_MODEL_KEY = "clip-vit-base-patch32"
+    DEFAULT_MODEL_KEY = "xlm-roberta-large"
 
     AVAILABLE_MODELS: Dict[str, Dict[str, object]] = {
         "clip-vit-base-patch32": {
@@ -33,6 +33,14 @@ class ModelConfig:
             "multilingual": True,
             "description": "SigLIP variant with improved multilingual understanding.",
             "languages": ["en", "multilingual"],
+        },
+        "xlm-roberta-large": {
+            "type": "xlm-roberta",
+            "name": "xlm-roberta-large",
+            "embedding_dim": 1024,
+            "multilingual": True,
+            "description": "Multilingual transformer model supporting 100+ languages (text-only).",
+            "languages": ["multilingual"],
         },
     }
 

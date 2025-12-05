@@ -313,17 +313,81 @@ class OpenCLIPModel(BaseEmbeddingModel):
             return features.cpu().numpy().flatten()
 
 
+class XLMRobertaModel(BaseEmbeddingModel):
+    """XLM-RoBERTa model - multilingual text-only transformer (100+ languages)."""
+
+    def load_model(self) -> None:
+        from transformers import AutoModel, AutoTokenizer
+
+        logger.info(f"Loading XLM-RoBERTa model: {self.model_name}")
+        try:
+            model = AutoModel.from_pretrained(self.model_name)
+            self.model = self._move_to_device(model)
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self.model.eval()
+
+            # XLM-RoBERTa-large has 1024 hidden dimensions
+            self._embedding_dim = self.model.config.hidden_size
+            logger.info(f"XLM-RoBERTa model loaded successfully. Embedding dim: {self._embedding_dim}")
+        except Exception as e:
+            logger.error(f"Failed to load XLM-RoBERTa model {self.model_name}: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to load XLM-RoBERTa model: {e}") from e
+
+    def encode_image(self, image: Image.Image) -> np.ndarray:
+        """XLM-RoBERTa is a text-only model and does not support image encoding."""
+        raise NotImplementedError(
+            "XLM-RoBERTa is a text-only model. Image encoding is not supported. "
+            "Please use a vision-language model like CLIP for image encoding."
+        )
+
+    def encode_text(self, text: str) -> np.ndarray:
+        """
+        Generate embedding from text using mean pooling over token embeddings.
+        """
+        with torch.no_grad():
+            # Tokenize input
+            inputs = self.tokenizer(
+                text,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=512
+            ).to(self.device)
+
+            # Get model outputs
+            outputs = self.model(**inputs)
+
+            # Use mean pooling over token embeddings
+            # Take the mean of all token embeddings (excluding padding)
+            attention_mask = inputs['attention_mask']
+            token_embeddings = outputs.last_hidden_state
+
+            # Expand attention mask to match token embeddings dimensions
+            input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+
+            # Sum embeddings and divide by number of tokens (mean pooling)
+            sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, dim=1)
+            sum_mask = torch.clamp(input_mask_expanded.sum(dim=1), min=1e-9)
+            embedding = sum_embeddings / sum_mask
+
+            # Normalize the embedding
+            embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+
+            return embedding.cpu().numpy().flatten()
+
+
 class EmbeddingService:
     """
     Main embedding service that manages model loading and provides
     a unified interface for generating embeddings.
     """
-    
+
     MODEL_CLASSES = {
         "clip": CLIPModel,
         "multilingual-clip": MultilingualCLIPModel,
         "siglip": SigLIPModel,
         "openclip": OpenCLIPModel,
+        "xlm-roberta": XLMRobertaModel,
     }
     
     def __init__(self, model_type: str = "clip", model_name: str = "openai/clip-vit-base-patch32"):
