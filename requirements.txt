@@ -19,6 +19,10 @@ transformers>=4.35.0
 Pillow>=10.0.0
 numpy>=1.24.0
 
+# Multilingual CLIP support
+multilingual-clip>=1.0.0
+sentence-transformers>=2.2.0
+
 # Development
 python-dotenv>=1.0.0
 requests>=2.31.0
